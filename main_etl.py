@@ -91,4 +91,4 @@ save_users_snapshot(
     current_users_snapshot=users_snapshot,
     current_date=snapshot_day,
 )
-today += timedelta(days=1)
+print("Done!")
