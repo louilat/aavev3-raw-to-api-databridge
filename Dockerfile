@@ -8,6 +8,6 @@ RUN apt-get -y update && \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY main.py .
+COPY main_etl.py .
 COPY src ./src
 CMD ["python3", "main_etl.py"]
