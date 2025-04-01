@@ -59,6 +59,7 @@ reserves_data = reserves_data[
         "variableBorrowRate",
         "liquidityIndex",
         "variableBorrowIndex",
+        "reserveLiquidationThreshold",
         "availableLiquidity",
         "totalScaledVariableDebt",
     ]
