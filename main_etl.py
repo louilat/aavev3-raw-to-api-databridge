@@ -10,6 +10,7 @@ from src.users_snapshot.users_snapshot import (
     get_previous_users_snapshot,
     save_users_snapshot,
 )
+from src.events.events import transfer_events
 
 ACCESS_KEY_ID = os.environ["ACCESS_KEY_ID"]
 SECRET_ACCESS_KEY = os.environ["SECRET_ACCESS_KEY"]
@@ -92,4 +93,7 @@ save_users_snapshot(
     current_users_snapshot=users_snapshot,
     current_date=snapshot_day,
 )
+
+transfer_events(client_s3=client_s3, snapshot_day=snapshot_day)
+
 print("Done!")
