@@ -1,16 +1,12 @@
 """ETL for convering raw data to api data"""
 
 import boto3
+import json
+import pandas as pd
 from datetime import datetime, timezone, timedelta
+import io
 import os
 
-from src.reserves_data.reserves_data import get_reserves_data, save_reserves_data
-from src.users_snapshot.users_snapshot import (
-    get_users_snapshot,
-    get_previous_users_snapshot,
-    save_users_snapshot,
-)
-from src.events.events import transfer_events
 
 ACCESS_KEY_ID = os.environ["ACCESS_KEY_ID"]
 SECRET_ACCESS_KEY = os.environ["SECRET_ACCESS_KEY"]
@@ -31,69 +27,50 @@ snapshot_day = datetime(
     today.year, today.month, today.day, tzinfo=timezone.utc
 ) - timedelta(days=14)
 
+
 print("INFO: Snapshot date is: ", snapshot_day)
 
 print("Extracting data...")
+day_str = snapshot_day.strftime("%Y-%m-%d")
+previous_day = snapshot_day - timedelta(days=1)
+previous_day_str = previous_day.strftime("%Y-%m-%d")
 
-reserves_data = get_reserves_data(client_s3=client_s3, current_date=snapshot_day)
+# Previous balances
+data = client_s3.get_object(
+    Bucket="projet-datalab-group-jprat",
+    Key=f"aavev3-api-datasource/users_balances/users_balances_snapshot_date={previous_day_str}/users_balances.json",
+)["Body"].read()
+data = json.loads(data)
+previous_balances_snapshot = pd.json_normalize(data)
 
-previous_users_snapshot = get_previous_users_snapshot(
-    client_s3=client_s3, snapshot_date=snapshot_day
-)
+# Active users
+data = client_s3.get_object(
+    Bucket="projet-datalab-group-jprat",
+    Key=f"aavev3-raw-datasource/daily-decoded-events/decoded_events_snapshot_date={day_str}/all_active_users.json",
+)["Body"].read()
+active_users_list = json.loads(data)
 
-users_snapshot = get_users_snapshot(
-    client_s3=client_s3,
-    previous_balances_snapshot=previous_users_snapshot,
-    current_date=snapshot_day,
-)
+# Active users balances
+data = client_s3.get_object(
+    Bucket="projet-datalab-group-jprat",
+    Key=f"aavev3-raw-datasource/daily-users-balances/users_balances_snapshot_date={day_str}/active_users_balances.json",
+)["Body"].read()
+data = json.loads(data)
+active_users_balances = pd.json_normalize(data)
 
 print("Process data...")
-
-reserves_data = reserves_data[
-    [
-        "name",
-        "lastUpdateTimestamp",
-        "decimals",
-        "underlyingAsset",
-        "underlyingTokenPriceUSD",
-        "liquidityRate",
-        "variableBorrowRate",
-        "liquidityIndex",
-        "variableBorrowIndex",
-        "reserveLiquidationThreshold",
-        "availableLiquidity",
-        "totalScaledVariableDebt",
-    ]
+current_balances_snapshot = previous_balances_snapshot[
+    ~previous_balances_snapshot.user.isin(active_users_list)
 ]
-
-users_snapshot.decimals = users_snapshot.decimals.apply(int)
-users_snapshot.snapshot_block = users_snapshot.snapshot_block.apply(int)
-users_snapshot.scaledATokenBalance = users_snapshot.scaledATokenBalance.apply(int)
-users_snapshot.scaledVariableDebt = users_snapshot.scaledVariableDebt.apply(int)
-
-users_snapshot = users_snapshot[
-    [
-        "snapshot_block",
-        "user_address",
-        "name",
-        "underlyingAsset",
-        "decimals",
-        "scaledATokenBalance",
-        "scaledVariableDebt",
-    ]
-]
+current_balances_snapshot = pd.concat(
+    (current_balances_snapshot, active_users_balances)
+)
 
 print("Generate and save outputs...")
-
-save_reserves_data(
-    client_s3=client_s3, current_reserves_data=reserves_data, current_date=snapshot_day
+buffer = io.StringIO()
+current_balances_snapshot.to_json(buffer, orient="records")
+client_s3.put_object(
+    Bucket="projet-datalab-group-jprat",
+    Key=f"aavev3-api-datasource/users_balances/users_balances_snapshot_date={day_str}/users_balances.json",
+    Body=buffer.getvalue(),
 )
-save_users_snapshot(
-    client_s3=client_s3,
-    current_users_snapshot=users_snapshot,
-    current_date=snapshot_day,
-)
-
-transfer_events(client_s3=client_s3, snapshot_day=snapshot_day)
-
-print("Done!")
